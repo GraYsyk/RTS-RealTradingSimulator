@@ -12,7 +12,7 @@ import java.time.Instant;
 public class Order {
 
     private long id;
-    private String userId;
+    private Long userId;
     private Side side;
     private OrderType orderType;
     private BigDecimal price;
@@ -22,7 +22,7 @@ public class Order {
 
     private Status status;
 
-    public Order(long id, String userId, Side side, OrderType orderType,
+    public Order(long id, Long userId, Side side, OrderType orderType,
                  BigDecimal price, BigDecimal quantity,
                  Instant timestamp) {
         this.id = id;
@@ -34,6 +34,20 @@ public class Order {
         this.remainingQuantity = quantity;
         this.timestamp = timestamp;
         this.status = Status.OPEN;
+    }
+
+    public Order(long id, Long userId, Side side, OrderType orderType,
+                 BigDecimal price, BigDecimal quantity, BigDecimal remainingQuantity,
+                 Instant timestamp, Status status) {
+        this.id = id;
+        this.userId = userId;
+        this.side = side;
+        this.orderType = orderType;
+        this.price = price;
+        this.quantity = quantity;
+        this.remainingQuantity = remainingQuantity;
+        this.timestamp = timestamp;
+        this.status = status;
     }
 
     public void fill(BigDecimal amount) {

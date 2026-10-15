@@ -1,5 +1,6 @@
 package net.graysenko.RTS.MatchingEngine.Engine;
 
+import lombok.Getter;
 import net.graysenko.RTS.MatchingEngine.Enums.OrderType;
 import net.graysenko.RTS.MatchingEngine.Enums.Side;
 import net.graysenko.RTS.MatchingEngine.POJO.Order;
@@ -10,96 +11,105 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class MatchingEngine {
 
+    @Getter
     private final OrderBook orderBook;
 
     private long tradeIdSeq = 0;
+    private final ReentrantLock lock = new ReentrantLock();
 
     public MatchingEngine(OrderBook orderBook) {
         this.orderBook = orderBook;
     }
 
     public List<Trade> match(Order incoming) {
-        List<Trade> trades = new ArrayList<>();
+        lock.lock();
 
-        //BUY
-        if (incoming.getSide() == Side.BUY) {
-            while (!incoming.isFilled()) {
-                var ask = orderBook.bestAsk();
-                if (ask == null) break;
-                if (incoming.getOrderType() == OrderType.LIMIT &&
-                        ask.getKey().compareTo(incoming.getPrice()) > 0) break;
+        try {
+            List<Trade> trades = new ArrayList<>();
 
-                //MATCH
-                PriceLevel askLevel = ask.getValue();
-                Order maker = askLevel.peekOrder();
+            //BUY
+            if (incoming.getSide() == Side.BUY) {
+                while (!incoming.isFilled()) {
+                    var ask = orderBook.bestAsk();
+                    if (ask == null) break;
+                    if (incoming.getOrderType() == OrderType.LIMIT &&
+                            ask.getKey().compareTo(incoming.getPrice()) > 0) break;
 
-                BigDecimal totalQty = incoming.getRemainingQuantity().min(maker.getRemainingQuantity());
-                BigDecimal tradePrice = ask.getKey();
+                    //MATCH
+                    PriceLevel askLevel = ask.getValue();
+                    Order maker = askLevel.peekOrder();
 
-                maker.fill(totalQty);
-                incoming.fill(totalQty);
+                    BigDecimal totalQty = incoming.getRemainingQuantity().min(maker.getRemainingQuantity());
+                    BigDecimal tradePrice = ask.getKey();
 
-                Trade trade = new Trade(
-                        tradeIdSeq++,
-                        incoming.getId(),
-                        maker.getId(),
-                        tradePrice,
-                        totalQty,
-                        Instant.now()
-                );
-                trades.add(trade);
+                    maker.fill(totalQty);
+                    incoming.fill(totalQty);
 
-                if (maker.isFilled()) {
-                    askLevel.pollOrder();
-                    orderBook.removeLevelIfEmpty(ask.getKey(), Side.SELL);
+                    Trade trade = new Trade(
+                            tradeIdSeq++,
+                            incoming.getId(),
+                            maker.getId(),
+                            tradePrice,
+                            totalQty,
+                            Instant.now()
+                    );
+                    trades.add(trade);
+
+                    if (maker.isFilled()) {
+                        askLevel.pollOrder();
+                        orderBook.removeLevelIfEmpty(ask.getKey(), Side.SELL);
+                    }
+
+
                 }
+            } else if (incoming.getSide() == Side.SELL) {
+                while (!incoming.isFilled()) {
+                    var bid = orderBook.bestBid();
+                    if (bid == null) break;
+                    if (incoming.getOrderType() == OrderType.LIMIT &&
+                            bid.getKey().compareTo(incoming.getPrice()) < 0) break;
+
+                    //MATCH
+                    PriceLevel bidLevel = bid.getValue();
+                    Order maker = bidLevel.peekOrder();
+
+                    BigDecimal totalQty = incoming.getRemainingQuantity().min(maker.getRemainingQuantity());
+                    BigDecimal tradePrice = bid.getKey();
+
+                    maker.fill(totalQty);
+                    incoming.fill(totalQty);
+
+                    Trade trade = new Trade(
+                            tradeIdSeq++,
+                            maker.getId(),
+                            incoming.getId(),
+                            tradePrice,
+                            totalQty,
+                            Instant.now()
+                    );
+                    trades.add(trade);
+
+                    if (maker.isFilled()) {
+                        bidLevel.pollOrder();
+                        orderBook.removeLevelIfEmpty(bid.getKey(), Side.BUY);
+                    }
 
 
-            }
-        } else if (incoming.getSide() == Side.SELL) {
-            while (!incoming.isFilled()) {
-                var bid = orderBook.bestBid();
-                if (bid == null) break;
-                if (incoming.getOrderType() == OrderType.LIMIT &&
-                        bid.getKey().compareTo(incoming.getPrice()) < 0) break;
-
-                //MATCH
-                PriceLevel bidLevel = bid.getValue();
-                Order maker = bidLevel.peekOrder();
-
-                BigDecimal totalQty = incoming.getRemainingQuantity().min(maker.getRemainingQuantity());
-                BigDecimal tradePrice = bid.getKey();
-
-                maker.fill(totalQty);
-                incoming.fill(totalQty);
-
-                Trade trade = new Trade(
-                        tradeIdSeq++,
-                        maker.getId(),
-                        incoming.getId(),
-                        tradePrice,
-                        totalQty,
-                        Instant.now()
-                );
-                trades.add(trade);
-
-                if (maker.isFilled()) {
-                    bidLevel.pollOrder();
-                    orderBook.removeLevelIfEmpty(bid.getKey(), Side.BUY);
                 }
-
-
             }
-        }
 
-        if (!incoming.isFilled()) {
-            if (incoming.getOrderType() == OrderType.LIMIT) orderBook.addOrder(incoming);
-            else incoming.cancel();
-        }
+            if (!incoming.isFilled()) {
+                if (incoming.getOrderType() == OrderType.LIMIT) orderBook.addOrder(incoming);
+                else incoming.cancel();
+            }
 
-        return trades;
+            return trades;
+        } finally {
+            lock.unlock();
+        }
     }
 }

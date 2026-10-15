@@ -18,17 +18,17 @@ import static org.junit.jupiter.api.Assertions.*;
 public class METests {
 
     private Order buy(long id, String price, String quantity) {
-        return new Order(id, "u1", Side.BUY, OrderType.LIMIT,
+        return new Order(id, 1L, Side.BUY, OrderType.LIMIT,
                 new BigDecimal(price), new BigDecimal(quantity), Instant.now());
     }
 
     private Order marketBuy(long id, String qty) {
-        return new Order(id, "u1", Side.BUY, OrderType.MARKET,
+        return new Order(id, 1L, Side.BUY, OrderType.MARKET,
                 null, new BigDecimal(qty), Instant.now());   // price = null
     }
 
     private Order sell(long id, String price, String quantity) {
-        return new Order(id, "u2", Side.SELL, OrderType.LIMIT,
+        return new Order(id, 2L, Side.SELL, OrderType.LIMIT,
                 new BigDecimal(price), new BigDecimal(quantity), Instant.now());
     }
 
