@@ -48,6 +48,7 @@ Most portfolio projects are CRUD apps. RTS is built around the problems that rea
 - **Price-improvement refund**: if a buyer's limit order fills at a better price than the limit, the difference is returned to `available`
 - **Multi-asset design**: one independent engine and order book per approved asset
 - **Crash recovery**: open orders are restored from the database into the engines on startup
+- **Rollback recovery**: if a `placeOrder` transaction rolls back after matching, the asset's order book is rebuilt from the database, so the in-memory book never drifts from persisted state
 - **Lazy wallet creation**: a wallet is created at the moment a trade needs it
 - Domain model and persistence model are **separate classes** (`Order` vs `OrderEntity`), so the engine never depends on JPA
 
@@ -78,8 +79,11 @@ flowchart TD
 2. Freeze funds (LIMIT orders), then persist the order
 3. Look up the engine for the asset and run `match()`
 4. For each resulting trade: update both orders, persist the trade, settle both wallets
-5. Refund any price-improvement difference to the buyer
-6. Return the up-to-date order state
+5. Cancel the unfilled remainder of a MARKET order (IOC)
+6. Refund any price-improvement difference to the buyer
+7. Return the up-to-date order state
+
+If anything fails after step 3, the transaction rolls back and the asset's order book is rebuilt from the database.
 
 ### Order book structure
 
@@ -131,7 +135,7 @@ src/main/java/net/graysenko/RTS
     ├── Services/                 #   OrderService, WalletService, TradeService, ...
     ├── Controllers/              #   REST controller (temporary test endpoint)
     ├── DTO/                      #   Request / response records
-    └── Utils/                    #   MatchingEngineRegistry (engines + startup recovery)
+    └── Utils/                    #   MatchingEngineRegistry (engines, startup and rollback recovery)
 ```
 
 ---
@@ -148,11 +152,25 @@ src/main/java/net/graysenko/RTS
 CREATE DATABASE rts_dev;
 ```
 
-### 2. Configure `src/main/resources/application.properties`
+### 2. Configure credentials
+Credentials are read from a `.env` file in the project root, which is git-ignored. Copy the template and fill it in:
+
+```bash
+cp .env.example .env
+```
+
 ```properties
+DB_USER=postgres
+DB_PASSWORD=your_password
+```
+
+`application.properties` imports it and never contains secrets:
+
+```properties
+spring.config.import=optional:file:.env[.properties]
 spring.datasource.url=jdbc:postgresql://localhost:5432/rts_dev
-spring.datasource.username=YOUR_USER
-spring.datasource.password=YOUR_PASSWORD
+spring.datasource.username=${DB_USER}
+spring.datasource.password=${DB_PASSWORD}
 spring.jpa.hibernate.ddl-auto=update
 ```
 
@@ -234,6 +252,8 @@ The matching engine is covered by unit tests that run without Spring. They cover
 | One engine per asset | Different markets are independent and must never match against each other |
 | Settlement in a single `@Transactional` flow | Either every balance change is applied, or none |
 | Orders restored from DB on startup | The order book is in-memory, so it must survive a restart |
+| Book rebuilt from DB after a rollback | A DB rollback cannot undo in-memory changes made by `match()`, so the book is reloaded from the source of truth |
+| Secrets in a git-ignored `.env` | Credentials never land in the repository |
 
 ---
 
@@ -241,7 +261,9 @@ The matching engine is covered by unit tests that run without Spring. They cover
 
 Honest notes on what is not solved yet:
 
-- **In-memory engine state is not rolled back with the DB transaction.** If a failure happens after `match()` but before the transaction commits, the database rolls back but the in-memory book keeps the changes. One cause (missing wallets) is already eliminated via lazy wallet creation, but the general problem remains and is a planned improvement.
+- **Rebuild window after a rollback.** The order book lives in memory and is not part of the DB transaction. When `placeOrder` rolls back after `match()`, the affected asset's book is rebuilt from the database (`TransactionSynchronization.afterCompletion` → `rebuildEngine`), so memory and DB converge again. While the rebuild runs, another thread may still hold the old engine, and an order placed into it would be lost when the new engine is swapped in.
+- **Cancelled orders stay in the in-memory book.** `cancelOrder` releases funds and marks the order `CANCELLED` in the DB, but does not remove it from the order book yet, so it can still be matched until the next rebuild or restart.
+- **No balance check for MARKET orders.** MARKET orders do not freeze funds; they are charged from `available` at settlement, which can currently drive a balance negative.
 - The engine uses a **global lock per asset**. A single-threaded command-queue design (LMAX-style) is a possible next step.
 - No authentication yet, and input validation currently lives in the temporary controller.
 - No integration tests for the persistence layer yet.
@@ -255,7 +277,10 @@ Honest notes on what is not solved yet:
 - [x] Persistence layer: users, wallets, assets, orders, trades
 - [x] Freeze / unlock model and transactional trade settlement
 - [x] Per-asset engines with startup recovery
-- [x] Manual end-to-end test through a REST endpoint
+- [x] Manual end-to-end test through a REST endpoint (LIMIT, MARKET, price-improvement refund)
+- [x] Order book rebuild after a rolled-back transaction
+- [ ] Remove cancelled orders from the in-memory book
+- [ ] Balance check for MARKET orders
 - [ ] Integration tests for the persistence layer
 - [ ] Order cancel endpoint and proper REST API
 - [ ] Authentication (JWT + refresh tokens, Google OAuth2)
