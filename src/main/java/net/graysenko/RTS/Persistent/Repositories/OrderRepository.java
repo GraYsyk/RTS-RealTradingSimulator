@@ -1,6 +1,7 @@
 package net.graysenko.RTS.Persistent.Repositories;
 
 import net.graysenko.RTS.MatchingEngine.Enums.Status;
+import net.graysenko.RTS.Persistent.Entities.Asset;
 import net.graysenko.RTS.Persistent.Entities.OrderEntity;
 import net.graysenko.RTS.Persistent.Entities.User;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,4 +13,5 @@ import java.util.List;
 public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     List<OrderEntity> findByUserAndStatus(User user, Status status);
     List<OrderEntity> findByStatusIn(List<Status> statuses);
+    List<OrderEntity> findByAsset_IdAndStatusIn(Long assetId, List<Status> statuses);
 }

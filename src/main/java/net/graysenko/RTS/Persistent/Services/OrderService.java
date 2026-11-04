@@ -13,9 +13,13 @@ import net.graysenko.RTS.Persistent.Utils.MatchingEngineRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.util.List;
+
+import static org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK;
 
 @Service
 @RequiredArgsConstructor(onConstructor = @__(@Autowired))
@@ -44,6 +48,15 @@ public class OrderService {
         MatchingEngine me = matchingEngineRegistry.getMatchingEngine(asset.getId());
         Order order = matchingEngineRegistry.orderfy(orderEntity);
 
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) {
+                    matchingEngineRegistry.rebuildEngine(asset.getId());
+                }
+            }
+        });
+
         List<Trade> domainTrades = me.match(order);
 
         BigDecimal totalQty = BigDecimal.ZERO;
@@ -66,10 +79,15 @@ public class OrderService {
             walletService.handleTradeActions(tradeEntity, buyOrder, sellOrder);
         }
 
+        if (orderType == OrderType.MARKET && !order.isFilled()) {
+            orderEntity.cancel();
+            orderRepository.save(orderEntity);
+        }
+
         if (side == Side.BUY && orderType == OrderType.LIMIT) {
             BigDecimal diff = totalQty.multiply(price).subtract(totalPrice);
             if (diff.signum() > 0) {
-                walletService.unlock(walletService.findByUserAndAsset(user, asset), diff);
+                walletService.unlock(walletService.getUserDefaultWallet(user), diff);
             }
         }
 

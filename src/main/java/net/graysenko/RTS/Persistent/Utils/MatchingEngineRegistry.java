@@ -11,6 +11,8 @@ import net.graysenko.RTS.Persistent.Enums.AssetStatus;
 import net.graysenko.RTS.Persistent.Enums.CurrencyType;
 import net.graysenko.RTS.Persistent.Repositories.AssetRepository;
 import net.graysenko.RTS.Persistent.Repositories.OrderRepository;
+import net.graysenko.RTS.Persistent.Services.AssetService;
+import org.aspectj.weaver.ast.Or;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.data.domain.Example;
@@ -28,6 +30,7 @@ public class MatchingEngineRegistry implements CommandLineRunner {
     private final AssetRepository assetRepository;
 
     private final ConcurrentHashMap<Long, MatchingEngine> engines = new ConcurrentHashMap<>();
+    private final AssetService assetService;
 
     public MatchingEngine getMatchingEngine(long assetId) {
         MatchingEngine me = engines.getOrDefault(assetId, null);
@@ -68,10 +71,20 @@ public class MatchingEngineRegistry implements CommandLineRunner {
     private void restoreOpenOrders() {
         List<OrderEntity> openOrders = orderRepository.findByStatusIn(List.of(Status.OPEN, Status.PARTIALLY_FILLED));
         for(OrderEntity order : openOrders) {
-            MatchingEngine me = getMatchingEngine(order.getAsset().getId());
+            rebuildEngine(order.getAsset().getId());
+        }
+    }
+
+    public void rebuildEngine(Long assetId) {
+        List<OrderEntity> openOrders = orderRepository.
+                findByAsset_IdAndStatusIn(assetId, List.of(Status.OPEN, Status.PARTIALLY_FILLED));
+        MatchingEngine me = new MatchingEngine(new OrderBook());
+        for(OrderEntity order : openOrders) {
             Order domainOrder = orderfy(order);
             me.getOrderBook().addOrder(domainOrder);
         }
+
+        engines.put(assetId, me);
     }
 
     public Order orderfy(OrderEntity order) {
