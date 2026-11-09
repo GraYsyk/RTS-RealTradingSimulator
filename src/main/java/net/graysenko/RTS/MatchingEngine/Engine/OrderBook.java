@@ -5,6 +5,7 @@ import net.graysenko.RTS.MatchingEngine.POJO.Order;
 import net.graysenko.RTS.MatchingEngine.POJO.PriceLevel;
 
 import java.math.BigDecimal;
+import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.TreeMap;
@@ -25,6 +26,15 @@ public class OrderBook {
         TreeMap<BigDecimal, PriceLevel> book = (side == Side.BUY) ? bids : asks;
         PriceLevel level = book.get(price);
         if (level != null && level.isEmpty()) book.remove(price);
+    }
+
+    public void removeOrder(Side side, long orderId, BigDecimal price) {
+        TreeMap<BigDecimal, PriceLevel> book = (side == Side.BUY) ? bids : asks;
+        PriceLevel level = book.get(price);
+        if (level != null) {
+            level.removeOrder(orderId);
+            removeLevelIfEmpty(price, side);
+        }
     }
 
     public Map.Entry<BigDecimal, PriceLevel> bestBid() {

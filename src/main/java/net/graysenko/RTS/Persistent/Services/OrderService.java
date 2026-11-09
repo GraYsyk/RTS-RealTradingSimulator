@@ -8,6 +8,7 @@ import net.graysenko.RTS.MatchingEngine.Enums.Status;
 import net.graysenko.RTS.MatchingEngine.POJO.Order;
 import net.graysenko.RTS.MatchingEngine.Records.Trade;
 import net.graysenko.RTS.Persistent.Entities.*;
+import net.graysenko.RTS.Persistent.Exceptions.OrderNotFoundException;
 import net.graysenko.RTS.Persistent.Repositories.OrderRepository;
 import net.graysenko.RTS.Persistent.Utils.MatchingEngineRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,9 +96,9 @@ public class OrderService {
     }
 
     @Transactional
-    public void cancelOrder(OrderEntity orderEntity) {
-        // TODO: ОБРАТНАЯ СВЯЗЬ ЧТО ЗАКАЗ УЖЕ НЕ ЛИКВИДЕН
-        if (orderEntity.getStatus().equals(Status.CANCELLED) || orderEntity.getStatus().equals(Status.FILLED)) return;
+    public Status cancelOrder(long orderId) {
+        OrderEntity orderEntity = orderRepository.findById(orderId).orElseThrow(() -> new OrderNotFoundException("Order id " + orderId + " not found"));
+        if (orderEntity.getStatus().equals(Status.CANCELLED) || orderEntity.getStatus().equals(Status.FILLED)) return orderEntity.getStatus();
 
         if (orderEntity.getSide().equals(Side.BUY)) {
             Wallet walletOwner = walletService.getUserDefaultWallet(orderEntity.getUser());
@@ -110,6 +111,22 @@ public class OrderService {
 
         orderEntity.cancel();
         orderRepository.save(orderEntity);
+
+        final Side side = orderEntity.getSide();
+        final BigDecimal price = orderEntity.getPrice();
+        final long assetId = orderEntity.getAsset().getId();
+
+        final Status status = orderEntity.getStatus();
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                MatchingEngine me = matchingEngineRegistry.getMatchingEngine(assetId);
+                me.cancel(side, orderId, price);
+            }
+        });
+
+        return status;
     }
 
     @Transactional(readOnly = true)

@@ -112,4 +112,13 @@ public class MatchingEngine {
             lock.unlock();
         }
     }
+
+    public void cancel(Side side, long orderId, BigDecimal price) {
+        lock.lock();
+        try {
+            orderBook.removeOrder(side, orderId, price);
+        } finally {
+            lock.unlock();
+        }
+    }
 }

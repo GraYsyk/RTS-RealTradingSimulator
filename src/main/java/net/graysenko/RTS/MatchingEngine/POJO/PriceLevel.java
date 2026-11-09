@@ -5,7 +5,6 @@ import java.util.ArrayDeque;
 public class PriceLevel {
 
     private final ArrayDeque<Order> orders = new ArrayDeque<>();
-//    private BigDecimal totalVolume = BigDecimal.ZERO;
 
     public void addOrder(Order order) {
         if (order != null) {
@@ -29,6 +28,10 @@ public class PriceLevel {
 
     public int size() {
         return orders.size();
+    }
+
+    public void removeOrder(long orderId) {
+        orders.removeIf(order -> order.getId() == orderId);
     }
 
 }

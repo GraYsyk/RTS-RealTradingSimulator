@@ -2,20 +2,20 @@ package net.graysenko.RTS.Persistent.Controllers;
 
 import lombok.RequiredArgsConstructor;
 import net.graysenko.RTS.MatchingEngine.Enums.OrderType;
+import net.graysenko.RTS.MatchingEngine.Enums.Status;
 import net.graysenko.RTS.Persistent.DTO.OrderPlacementRequest;
 import net.graysenko.RTS.Persistent.DTO.ResponseOrderPlacement;
 import net.graysenko.RTS.Persistent.Entities.Asset;
 import net.graysenko.RTS.Persistent.Entities.OrderEntity;
 import net.graysenko.RTS.Persistent.Entities.User;
+import net.graysenko.RTS.Persistent.Exceptions.OrderNotFoundException;
 import net.graysenko.RTS.Persistent.Services.AssetService;
 import net.graysenko.RTS.Persistent.Services.OrderService;
 import net.graysenko.RTS.Persistent.Services.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor(onConstructor = @__(@Autowired))
@@ -58,5 +58,17 @@ public class OrderController {
                 orderEntity.getQuantity(),
                 orderEntity.getPrice()
         ), HttpStatus.OK);
+    }
+
+    @DeleteMapping("/{orderId}")
+    public ResponseEntity<?> deleteOrder(@PathVariable("orderId") long orderId) {
+        try {
+            Status status = orderService.cancelOrder(orderId);
+            return ResponseEntity
+                    .status(HttpStatus.OK)
+                    .body("Status:" + status);
+        } catch (OrderNotFoundException e){
+            return ResponseEntity.notFound().build();
+        }
     }
 }
