@@ -8,6 +8,7 @@ import net.graysenko.RTS.MatchingEngine.POJO.PriceLevel;
 import net.graysenko.RTS.MatchingEngine.Records.Trade;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,11 +22,17 @@ public class MatchingEngine {
     private long tradeIdSeq = 0;
     private final ReentrantLock lock = new ReentrantLock();
 
+    private static final int QTY_SCALE = 10;
+
     public MatchingEngine(OrderBook orderBook) {
         this.orderBook = orderBook;
     }
 
     public List<Trade> match(Order incoming) {
+        return match(incoming, null);
+    }
+
+    public List<Trade> match(Order incoming, BigDecimal maxQuoteAmount) {
         lock.lock();
 
         try {
@@ -33,6 +40,7 @@ public class MatchingEngine {
 
             //BUY
             if (incoming.getSide() == Side.BUY) {
+                BigDecimal quoteAmount = maxQuoteAmount;
                 while (!incoming.isFilled()) {
                     var ask = orderBook.bestAsk();
                     if (ask == null) break;
@@ -43,11 +51,23 @@ public class MatchingEngine {
                     PriceLevel askLevel = ask.getValue();
                     Order maker = askLevel.peekOrder();
 
-                    BigDecimal totalQty = incoming.getRemainingQuantity().min(maker.getRemainingQuantity());
                     BigDecimal tradePrice = ask.getKey();
+
+                    BigDecimal totalQty = incoming.getRemainingQuantity()
+                            .min(maker.getRemainingQuantity());
+
+                    if (quoteAmount != null) {
+                        totalQty = totalQty.min(quoteAmount.divide(tradePrice, QTY_SCALE, RoundingMode.FLOOR));
+                    }
+
+                    if (totalQty.signum() == 0) break;
 
                     maker.fill(totalQty);
                     incoming.fill(totalQty);
+
+                    if (quoteAmount != null) {
+                        quoteAmount = quoteAmount.subtract(tradePrice.multiply(totalQty));
+                    }
 
                     Trade trade = new Trade(
                             tradeIdSeq++,

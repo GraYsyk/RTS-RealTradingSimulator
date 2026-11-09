@@ -8,6 +8,7 @@ import net.graysenko.RTS.Persistent.DTO.ResponseOrderPlacement;
 import net.graysenko.RTS.Persistent.Entities.Asset;
 import net.graysenko.RTS.Persistent.Entities.OrderEntity;
 import net.graysenko.RTS.Persistent.Entities.User;
+import net.graysenko.RTS.Persistent.Exceptions.InsufficientFundsException;
 import net.graysenko.RTS.Persistent.Exceptions.OrderNotFoundException;
 import net.graysenko.RTS.Persistent.Services.AssetService;
 import net.graysenko.RTS.Persistent.Services.OrderService;
@@ -43,21 +44,23 @@ public class OrderController {
         }
 
 
-        OrderEntity orderEntity = orderService.placeOrder(user, asset,
-                orderRequest.side(),
-                orderRequest.orderType(),
-                orderRequest.price(),
-                orderRequest.quantity());
+        try {
+            OrderEntity orderEntity = orderService.placeOrder(user, asset,
+                    orderRequest.side(),
+                    orderRequest.orderType(),
+                    orderRequest.price(),
+                    orderRequest.quantity());
 
-
-
-        return new ResponseEntity<>(new ResponseOrderPlacement(
-                orderEntity.getId(),
-                orderEntity.getStatus(),
-                orderEntity.getRemainingQuantity(),
-                orderEntity.getQuantity(),
-                orderEntity.getPrice()
-        ), HttpStatus.OK);
+            return new ResponseEntity<>(new ResponseOrderPlacement(
+                    orderEntity.getId(),
+                    orderEntity.getStatus(),
+                    orderEntity.getRemainingQuantity(),
+                    orderEntity.getQuantity(),
+                    orderEntity.getPrice()
+            ), HttpStatus.OK);
+        } catch (InsufficientFundsException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @DeleteMapping("/{orderId}")

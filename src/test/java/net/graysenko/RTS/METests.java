@@ -129,4 +129,24 @@ public class METests {
         assertEquals(Status.CANCELLED, market.getStatus()); // REMAINING CANCELED
         assertNull(book.bestBid()); // MARKET not IN THE CUP
     }
+
+    @Test
+    void marketBuyStopsWhenBudgetRunsOut() {
+        OrderBook book = new OrderBook();
+        MatchingEngine engine = new MatchingEngine(book);
+
+        book.addOrder(sell(1, "1000", "2"));
+        book.addOrder(sell(2, "1200", "3"));
+
+        Order market = marketBuy(3, "5");
+        List<Trade> trades = engine.match(market, new BigDecimal("3000"));
+
+        assertEquals(2, trades.size());
+        BigDecimal exp = new BigDecimal("0.8333333333");
+        assertEquals(0, exp.compareTo(trades.get(1).quantity()));
+        assertEquals(Status.CANCELLED, market.getStatus());
+        BigDecimal expectedLeft = new BigDecimal("3").subtract(exp);
+        assertEquals(0, expectedLeft.compareTo(
+                book.bestAsk().getValue().peekOrder().getRemainingQuantity()));
+    }
 }

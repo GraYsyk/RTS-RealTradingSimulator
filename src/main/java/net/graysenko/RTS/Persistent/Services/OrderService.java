@@ -8,6 +8,7 @@ import net.graysenko.RTS.MatchingEngine.Enums.Status;
 import net.graysenko.RTS.MatchingEngine.POJO.Order;
 import net.graysenko.RTS.MatchingEngine.Records.Trade;
 import net.graysenko.RTS.Persistent.Entities.*;
+import net.graysenko.RTS.Persistent.Exceptions.InsufficientFundsException;
 import net.graysenko.RTS.Persistent.Exceptions.OrderNotFoundException;
 import net.graysenko.RTS.Persistent.Repositories.OrderRepository;
 import net.graysenko.RTS.Persistent.Utils.MatchingEngineRegistry;
@@ -44,6 +45,14 @@ public class OrderService {
         if (orderType != OrderType.MARKET) {
             walletService.handleUserOrderCreation(user, orderEntity, asset);
         }
+
+        if (orderType == OrderType.MARKET && side == Side.SELL) {
+            java.math.BigDecimal available = walletService.findByUserAndAsset(user, asset).getAvailable();
+            if (quantity != null && available.compareTo(quantity) < 0) {
+                throw new InsufficientFundsException("Quantity cannot be greater than available");
+            }
+        }
+
         orderEntity = orderRepository.save(orderEntity);
 
         MatchingEngine me = matchingEngineRegistry.getMatchingEngine(asset.getId());
@@ -58,7 +67,12 @@ public class OrderService {
             }
         });
 
-        List<Trade> domainTrades = me.match(order);
+        BigDecimal budget = null;
+        if (side == Side.BUY && orderType == OrderType.MARKET) {
+         budget = walletService.getUserDefaultWallet(user).getAvailable();
+        }
+
+        List<Trade> domainTrades = me.match(order, budget);
 
         BigDecimal totalQty = BigDecimal.ZERO;
         BigDecimal totalPrice = BigDecimal.ZERO;

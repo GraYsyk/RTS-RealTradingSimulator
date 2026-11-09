@@ -2,6 +2,7 @@ package net.graysenko.RTS.Persistent.Services;
 
 import net.graysenko.RTS.MatchingEngine.Enums.OrderType;
 import net.graysenko.RTS.Persistent.Entities.*;
+import net.graysenko.RTS.Persistent.Exceptions.InsufficientFundsException;
 import net.graysenko.RTS.Persistent.Repositories.AssetRepository;
 import org.hibernate.PropertyNotFoundException;
 import org.springframework.transaction.annotation.Transactional;
@@ -85,7 +86,7 @@ public class WalletService {
         BigDecimal available = wallet.getAvailable();
         BigDecimal locked = wallet.getLocked();
         if (available.compareTo(quantity) < 0) {
-            throw new IllegalArgumentException("Quantity is greater than available credits");
+            throw new InsufficientFundsException("Quantity is greater than available credits");
         }
         wallet.setAvailable(available.subtract(quantity));
         wallet.setLocked(locked.add(quantity));
