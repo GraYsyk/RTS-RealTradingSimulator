@@ -39,13 +39,17 @@ Most portfolio projects are CRUD apps. RTS is built around the problems that rea
 - **Partial fills** and multi-level sweeps (one order can consume several price levels)
 - Trades execute at the **maker's price**, as on real exchanges
 - MARKET orders follow **IOC** (Immediate-Or-Cancel): an unfilled remainder is cancelled, never rests in the book
-- Thread-safe through a `ReentrantLock` around the matching routine
+- **Budget-limited MARKET buys**: an optional spending limit stops matching when funds run out, with fractional fills rounded down
+- **Order cancellation**: a resting order can be removed from its price level
+- Thread-safe through a `ReentrantLock` around matching and cancellation
 - Fully **isolated from Spring and JPA**, so it is unit-tested without any application context
 
 ### Trading backend (Spring Boot + PostgreSQL)
 - **Freeze / unlock balance model**: each wallet has `available` and `locked` amounts. Funds are reserved when an order is placed and released on cancel or settlement
 - **Transactional settlement**: trade execution moves Points and assets between wallets atomically (`@Transactional`)
 - **Price-improvement refund**: if a buyer's limit order fills at a better price than the limit, the difference is returned to `available`
+- **Balance checks**: LIMIT orders need enough funds to freeze, MARKET BUY is capped by the buyer's `available` Points, MARKET SELL is rejected if the asset balance is too low. All of these return `400` before anything is persisted
+- **Order cancellation**: releases frozen funds, marks the order `CANCELLED` and removes it from the in-memory book only after the transaction commits
 - **Multi-asset design**: one independent engine and order book per approved asset
 - **Crash recovery**: open orders are restored from the database into the engines on startup
 - **Rollback recovery**: if a `placeOrder` transaction rolls back after matching, the asset's order book is rebuilt from the database, so the in-memory book never drifts from persisted state
@@ -76,8 +80,8 @@ flowchart TD
 **Order lifecycle (`placeOrder`):**
 
 1. Validate input and build the order
-2. Freeze funds (LIMIT orders), then persist the order
-3. Look up the engine for the asset and run `match()`
+2. Check balances: freeze funds for LIMIT orders, verify the asset balance for MARKET SELL. Then persist the order
+3. Look up the engine for the asset and run `match()`. A MARKET BUY passes the buyer's available Points as a budget
 4. For each resulting trade: update both orders, persist the trade, settle both wallets
 5. Cancel the unfilled remainder of a MARKET order (IOC)
 6. Refund any price-improvement difference to the buyer
@@ -221,7 +225,19 @@ Response:
 }
 ```
 
-> The `POST /` endpoint is a temporary test harness and will be replaced by a proper REST API.
+### 6. Cancel an order
+```bash
+curl -X DELETE http://localhost:8080/1
+```
+
+Response: `Status:CANCELLED`. Cancelling an order that is already `FILLED` or `CANCELLED` returns its current status and changes nothing.
+
+| Code | Meaning |
+|------|---------|
+| `400` | Invalid input or insufficient funds (the message explains which) |
+| `404` | Unknown user, asset or order id |
+
+> `POST /` and `DELETE /{orderId}` are a temporary test harness and will be replaced by a proper REST API.
 
 ---
 
@@ -238,6 +254,7 @@ The matching engine is covered by unit tests that run without Spring. They cover
 - a BUY sweeping multiple price levels with a partial remainder
 - the SELL-side mirror cases
 - a MARKET order with a partial fill and cancellation of the remainder (IOC)
+- a MARKET BUY that stops when its budget runs out, including a fractional fill
 
 ---
 
@@ -253,6 +270,9 @@ The matching engine is covered by unit tests that run without Spring. They cover
 | Settlement in a single `@Transactional` flow | Either every balance change is applied, or none |
 | Orders restored from DB on startup | The order book is in-memory, so it must survive a restart |
 | Book rebuilt from DB after a rollback | A DB rollback cannot undo in-memory changes made by `match()`, so the book is reloaded from the source of truth |
+| Cancelled order removed from the book after commit | If the commit fails, the order stays both in the DB and in the book, so they never disagree |
+| MARKET budget fills rounded down | Rounding up could buy slightly more than the buyer can pay |
+| Engine receives a budget, not wallets | The core stays free of persistence while still respecting balances |
 | Secrets in a git-ignored `.env` | Credentials never land in the repository |
 
 ---
@@ -262,7 +282,8 @@ The matching engine is covered by unit tests that run without Spring. They cover
 Honest notes on what is not solved yet:
 
 - **Rebuild window after a rollback.** The order book lives in memory and is not part of the DB transaction. When `placeOrder` rolls back after `match()`, the affected asset's book is rebuilt from the database (`TransactionSynchronization.afterCompletion` → `rebuildEngine`), so memory and DB converge again. While the rebuild runs, another thread may still hold the old engine, and an order placed into it would be lost when the new engine is swapped in.
-- **No balance check for MARKET orders.** MARKET orders do not freeze funds; they are charged from `available` at settlement, which can currently drive a balance negative.
+- **Concurrent MARKET buys by one user.** A MARKET BUY reads the buyer's `available` Points as its budget before matching and is charged after. Two MARKET buys from the same user running in parallel can both see the same balance and together drive it negative. Planned fix: lock the wallet row in the database (`SELECT ... FOR UPDATE`).
+- **Cancellation window.** A cancelled order is removed from the in-memory book right after the commit. In that short window a concurrent order could still match against it.
 - The engine uses a **global lock per asset**. A single-threaded command-queue design (LMAX-style) is a possible next step.
 - No authentication yet, and input validation currently lives in the temporary controller.
 - No integration tests for the persistence layer yet.
@@ -278,10 +299,11 @@ Honest notes on what is not solved yet:
 - [x] Per-asset engines with startup recovery
 - [x] Manual end-to-end test through a REST endpoint (LIMIT, MARKET, price-improvement refund)
 - [x] Order book rebuild after a rolled-back transaction
-- [ ] Remove cancelled orders from the in-memory book
-- [ ] Balance check for MARKET orders
+- [x] Order cancellation with in-memory book removal (temporary endpoint)
+- [x] Balance checks and budget-limited MARKET buys
+- [ ] Wallet row locking against concurrent orders of one user
 - [ ] Integration tests for the persistence layer
-- [ ] Order cancel endpoint and proper REST API
+- [ ] Proper REST API
 - [ ] Authentication (JWT + refresh tokens, Google OAuth2)
 - [ ] WebSocket streams (live order book, trades, price)
 - [ ] Market-maker bots seeded from real market prices
