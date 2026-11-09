@@ -262,7 +262,6 @@ The matching engine is covered by unit tests that run without Spring. They cover
 Honest notes on what is not solved yet:
 
 - **Rebuild window after a rollback.** The order book lives in memory and is not part of the DB transaction. When `placeOrder` rolls back after `match()`, the affected asset's book is rebuilt from the database (`TransactionSynchronization.afterCompletion` → `rebuildEngine`), so memory and DB converge again. While the rebuild runs, another thread may still hold the old engine, and an order placed into it would be lost when the new engine is swapped in.
-- **Cancelled orders stay in the in-memory book.** `cancelOrder` releases funds and marks the order `CANCELLED` in the DB, but does not remove it from the order book yet, so it can still be matched until the next rebuild or restart.
 - **No balance check for MARKET orders.** MARKET orders do not freeze funds; they are charged from `available` at settlement, which can currently drive a balance negative.
 - The engine uses a **global lock per asset**. A single-threaded command-queue design (LMAX-style) is a possible next step.
 - No authentication yet, and input validation currently lives in the temporary controller.
