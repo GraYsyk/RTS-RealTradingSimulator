@@ -53,7 +53,9 @@ Most portfolio projects are CRUD apps. RTS is built around the problems that rea
 - **Multi-asset design**: one independent engine and order book per approved asset
 - **Crash recovery**: open orders are restored from the database into the engines on startup
 - **Rollback recovery**: if a `placeOrder` transaction rolls back after matching, the asset's order book is rebuilt from the database, so the in-memory book never drifts from persisted state
-- **Lazy wallet creation**: a wallet is created at the moment a trade needs it
+- **Lazy wallet creation**: a wallet is created at the moment a trade needs it, race-free via `INSERT ... ON CONFLICT DO NOTHING`
+- **Pessimistic wallet locking**: every wallet read takes a row lock (`SELECT ... FOR UPDATE`), so parallel orders of the same user cannot overwrite each other's balance changes
+- **Ordered lock acquisition**: wallets involved in a trade are locked in ascending user-id order to reduce deadlocks
 - Domain model and persistence model are **separate classes** (`Order` vs `OrderEntity`), so the engine never depends on JPA
 
 ---
@@ -273,6 +275,9 @@ The matching engine is covered by unit tests that run without Spring. They cover
 | Cancelled order removed from the book after commit | If the commit fails, the order stays both in the DB and in the book, so they never disagree |
 | MARKET budget fills rounded down | Rounding up could buy slightly more than the buyer can pay |
 | Engine receives a budget, not wallets | The core stays free of persistence while still respecting balances |
+| Pessimistic (not optimistic) wallet locking | A market maker's wallet is touched by almost every trade. Optimistic version checks would fail constantly, and every failure after `match()` triggers a rollback and a book rebuild |
+| Wallets locked in ascending user-id order | Two trades between the same users always take locks in the same order, so they queue instead of deadlocking |
+| `INSERT ... ON CONFLICT DO NOTHING` for new wallets | A row lock cannot protect a row that does not exist yet; the unique constraint does |
 | Secrets in a git-ignored `.env` | Credentials never land in the repository |
 
 ---
@@ -282,7 +287,7 @@ The matching engine is covered by unit tests that run without Spring. They cover
 Honest notes on what is not solved yet:
 
 - **Rebuild window after a rollback.** The order book lives in memory and is not part of the DB transaction. When `placeOrder` rolls back after `match()`, the affected asset's book is rebuilt from the database (`TransactionSynchronization.afterCompletion` → `rebuildEngine`), so memory and DB converge again. While the rebuild runs, another thread may still hold the old engine, and an order placed into it would be lost when the new engine is swapped in.
-- **Concurrent MARKET buys by one user.** A MARKET BUY reads the buyer's `available` Points as its budget before matching and is charged after. Two MARKET buys from the same user running in parallel can both see the same balance and together drive it negative. Planned fix: lock the wallet row in the database (`SELECT ... FOR UPDATE`).
+- **Rare deadlocks on crossing trades.** A buyer's wallet is already locked in `placeOrder` (fund freeze or MARKET budget) before matching reveals the counterparty, so lock order cannot be fully controlled. If user A buys from B while B buys from A, PostgreSQL may detect a deadlock and abort one transaction. Planned fix: retry the order in a fresh transaction (`@Retryable`) and return `503` if retries are exhausted.
 - **Cancellation window.** A cancelled order is removed from the in-memory book right after the commit. In that short window a concurrent order could still match against it.
 - The engine uses a **global lock per asset**. A single-threaded command-queue design (LMAX-style) is a possible next step.
 - No authentication yet, and input validation currently lives in the temporary controller.
@@ -301,7 +306,8 @@ Honest notes on what is not solved yet:
 - [x] Order book rebuild after a rolled-back transaction
 - [x] Order cancellation with in-memory book removal (temporary endpoint)
 - [x] Balance checks and budget-limited MARKET buys
-- [ ] Wallet row locking against concurrent orders of one user
+- [x] Wallet row locking and race-free wallet creation
+- [ ] Retry orders aborted by a deadlock
 - [ ] Integration tests for the persistence layer
 - [ ] Proper REST API
 - [ ] Authentication (JWT + refresh tokens, Google OAuth2)
