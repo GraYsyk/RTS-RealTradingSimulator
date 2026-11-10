@@ -147,10 +147,4 @@ public class OrderService {
     public OrderEntity getOrderById(Long orderId) {
         return orderRepository.findById(orderId).orElse(null);
     }
-
-    @Transactional(readOnly = true)
-    public User getUserFromOrderId(Long orderId) {
-        return orderRepository.findById(orderId).orElseThrow(()
-                -> new IllegalArgumentException("Order with id "+orderId+" wasn't found")).getUser();
-    }
 }

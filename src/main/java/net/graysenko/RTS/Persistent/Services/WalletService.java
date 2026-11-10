@@ -4,7 +4,6 @@ import net.graysenko.RTS.MatchingEngine.Enums.OrderType;
 import net.graysenko.RTS.Persistent.Entities.*;
 import net.graysenko.RTS.Persistent.Exceptions.InsufficientFundsException;
 import net.graysenko.RTS.Persistent.Repositories.AssetRepository;
-import org.hibernate.PropertyNotFoundException;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import net.graysenko.RTS.MatchingEngine.Enums.Side;
@@ -15,6 +14,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.util.Optional;
 
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 @Service
 @RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class WalletService {
@@ -24,6 +26,17 @@ public class WalletService {
 
     @Transactional
     public void handleTradeActions(TradeEntity tradeEntity, OrderEntity buyOrder, OrderEntity sellerOrder) {
+        User buyer = buyOrder.getUser();
+        User seller = sellerOrder.getUser();
+        User first = buyer.getId() < seller.getId() ? buyer : seller;
+        User second = (first == buyer) ? seller : buyer;
+
+        //deadlock fix
+        Wallet FBW = getUserDefaultWallet(first);
+        Wallet SBW = getUserDefaultWallet(second);
+        Wallet FAW = findByUserAndAsset(first, buyOrder.getAsset());
+        Wallet SeAW = findByUserAndAsset(second, buyOrder.getAsset());
+
         Wallet buyWallet = getUserDefaultWallet(buyOrder.getUser());
         Wallet sellWallet = getUserDefaultWallet(sellerOrder.getUser());
 
@@ -42,28 +55,19 @@ public class WalletService {
 
         //CRYPTO EXCHANGE
 
-        Wallet sellAssetWallet = walletRepository.findByUserAndAsset(sellerOrder.getUser(), sellerOrder.getAsset())
-                .orElseGet(() -> createWallet(sellerOrder.getUser(), sellerOrder.getAsset()));
+        Wallet SAW = findByUserAndAsset(sellerOrder.getUser(), sellerOrder.getAsset());
         if (sellerOrder.getOrderType() == OrderType.MARKET) {
-            sellAssetWallet.setAvailable(sellAssetWallet.getAvailable().subtract(tradeEntity.getQuantity()));
+            SAW.setAvailable(SAW.getAvailable().subtract(tradeEntity.getQuantity()));
         } else {
-            sellAssetWallet.setLocked(sellAssetWallet.getLocked().subtract(tradeEntity.getQuantity()));
+            SAW.setLocked(SAW.getLocked().subtract(tradeEntity.getQuantity()));
         }
-        save(sellAssetWallet);
+        save(SAW);
 
-        Wallet BAW = walletRepository.findByUserAndAsset(buyOrder.getUser(), buyOrder.getAsset()).orElse(null);
-        if (BAW == null) {
-            Wallet buyAssetWallet = new Wallet(
-                    buyOrder.getUser(), buyOrder.getAsset(), tradeEntity.getQuantity()
-            );
-            save(buyAssetWallet);
-        } else {
-            BAW.setAvailable(BAW.getAvailable().add(tradeEntity.getQuantity()));
-            save(BAW);
-        }
+        Wallet BAW = findByUserAndAsset(buyOrder.getUser(), buyOrder.getAsset());
+        BAW.setAvailable(BAW.getAvailable().add(tradeEntity.getQuantity()));
+        save(BAW);
     }
 
-    // ????? ONLY FOR - LIMIT orders
     @Transactional
     public void handleUserOrderCreation(User user, OrderEntity orderEntity, Asset asset) {
         BigDecimal orderPrice = orderEntity.getPrice();
@@ -115,18 +119,13 @@ public class WalletService {
     }
 
     public Wallet findByUserAndAsset(User user, Asset asset) {
-        return walletRepository.findByUserAndAsset(user, asset).orElseGet(() ->
-                createWallet(user, asset)
-        );
-    }
-
-    private Wallet createWallet(User user, Asset asset) {
-        Wallet wallet = new Wallet(
-                user,
-                asset,
-                BigDecimal.ZERO
-        );
-        save(wallet);
-        return wallet;
+        Optional<Wallet> wallet = walletRepository.findByUserAndAsset(user, asset);
+        if (wallet.isPresent()) {
+            return wallet.get();
+        } else {
+            walletRepository.insertIfAbsent(user.getId(),  asset.getId());
+            return walletRepository.findByUserAndAsset(user, asset).orElseThrow(
+                    () -> new IllegalStateException("Wallet not found and failed to create"));
+        }
     }
 }
