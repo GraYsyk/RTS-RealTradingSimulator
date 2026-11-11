@@ -12,7 +12,11 @@ import net.graysenko.RTS.Persistent.Exceptions.InsufficientFundsException;
 import net.graysenko.RTS.Persistent.Exceptions.OrderNotFoundException;
 import net.graysenko.RTS.Persistent.Repositories.OrderRepository;
 import net.graysenko.RTS.Persistent.Utils.MatchingEngineRegistry;
+import org.hibernate.PessimisticLockException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.resilience.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -20,6 +24,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK;
 
@@ -32,6 +37,11 @@ public class OrderService {
     private final WalletService walletService;
     private final TradeService tradeService;
 
+    @Retryable(includes = ConcurrencyFailureException.class,
+            maxRetries = 3,
+            multiplier = 2,
+            jitter = 250,
+            delay = 300)
     @Transactional
     public OrderEntity placeOrder(User user, Asset asset, Side side,
                            OrderType orderType, BigDecimal price,

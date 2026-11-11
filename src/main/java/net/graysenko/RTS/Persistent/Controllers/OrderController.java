@@ -14,6 +14,8 @@ import net.graysenko.RTS.Persistent.Services.AssetService;
 import net.graysenko.RTS.Persistent.Services.OrderService;
 import net.graysenko.RTS.Persistent.Services.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -58,7 +60,10 @@ public class OrderController {
                     orderEntity.getQuantity(),
                     orderEntity.getPrice()
             ), HttpStatus.OK);
-        } catch (InsufficientFundsException e) {
+        } catch (InsufficientFundsException | ConcurrencyFailureException e) {
+            if (e instanceof PessimisticLockingFailureException) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Too many requests, try again later");
+            }
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
