@@ -2,6 +2,7 @@ package net.graysenko.RTS.Persistent.Services;
 
 import net.graysenko.RTS.MatchingEngine.Enums.OrderType;
 import net.graysenko.RTS.Persistent.Entities.*;
+import net.graysenko.RTS.Persistent.Enums.AssetStatus;
 import net.graysenko.RTS.Persistent.Exceptions.InsufficientFundsException;
 import net.graysenko.RTS.Persistent.Repositories.AssetRepository;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
     private final AssetRepository assetRepository;
+    private final AssetService assetService;
 
     @Transactional
     public void handleTradeActions(TradeEntity tradeEntity, OrderEntity buyOrder, OrderEntity sellerOrder) {
@@ -113,12 +115,18 @@ public class WalletService {
         walletRepository.save(wallet);
     }
 
+    @Transactional
     public Wallet getUserDefaultWallet(User user) {
         Asset asset = assetRepository.findBySymbol("POINTS").orElseThrow(() -> new IllegalStateException("Bse Asset POINTS Not Found"));
         return findByUserAndAsset(user, asset);
     }
 
+    @Transactional
     public Wallet findByUserAndAsset(User user, Asset asset) {
+        if (assetService.findAssetBySymbol(asset.getSymbol()) == null
+                || !assetService.findAssetBySymbol(asset.getSymbol()).getStatus().equals(AssetStatus.APPROVED))
+            throw new IllegalArgumentException("Requested asset does not exist");
+
         Optional<Wallet> wallet = walletRepository.findByUserAndAsset(user, asset);
         if (wallet.isPresent()) {
             return wallet.get();
