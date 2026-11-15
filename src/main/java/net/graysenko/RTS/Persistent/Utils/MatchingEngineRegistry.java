@@ -12,13 +12,10 @@ import net.graysenko.RTS.Persistent.Enums.CurrencyType;
 import net.graysenko.RTS.Persistent.Repositories.AssetRepository;
 import net.graysenko.RTS.Persistent.Repositories.OrderRepository;
 import net.graysenko.RTS.Persistent.Services.AssetService;
-import org.aspectj.weaver.ast.Or;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.data.domain.Example;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 

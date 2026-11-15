@@ -18,6 +18,9 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Wallet> findByUserAndAsset(User user, Asset asset);
 
+    //Only for tests!!!
+    Optional<Wallet> readByUserAndAsset(User user, Asset asset);
+
     @Modifying
     @Query(value = """
         INSERT INTO wallets (user_id, asset_id, available, locked)
