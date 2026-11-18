@@ -10,7 +10,7 @@ Limit and market orders, price-time priority, partial fills and transactional se
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?logo=postgresql&logoColor=white)
 ![JUnit](https://img.shields.io/badge/Tests-JUnit_5-25A162?logo=junit5&logoColor=white)
 ![Status](https://img.shields.io/badge/status-in_development-yellow)
-
+![CI](https://github.com/GraYsyk/RTS-RealTradingSimulator/actions/workflows/ci.yml/badge.svg)
 </div>
 
 > [!IMPORTANT]
