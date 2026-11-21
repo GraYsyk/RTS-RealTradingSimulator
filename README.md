@@ -295,7 +295,6 @@ Honest notes on what is not solved yet:
 - **Cancellation window.** A cancelled order is removed from the in-memory book right after the commit. In that short window a concurrent order could still match against it.
 - The engine uses a **global lock per asset**. A single-threaded command-queue design (LMAX-style) is a possible next step.
 - No authentication yet, and input validation currently lives in the temporary controller.
-- No integration tests for the persistence layer yet.
 
 ---
 
